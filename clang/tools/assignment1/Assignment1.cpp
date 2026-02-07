@@ -225,9 +225,6 @@ class Assignment1Action : public ASTFrontendAction {
                 // Add a declaration of the controller structure to the begining of the file
 
                 // TODO
-
-//                FileStream << ""; // Add text to the beginning of the file here
-
                 FileStream  << "#include <string.h>\n\n"
                             << "struct __Controller {\n"
                             << "  unsigned int skipThen;\n"
@@ -239,9 +236,6 @@ class Assignment1Action : public ASTFrontendAction {
                             << "  unsigned int skipContinues;\n"
                             << "  char* skipFunctionName;\n"
                             << "};\n";
-
-
-
 
                 SourceManager &SM = rewriter_.getSourceMgr();
                 rewriter_.getEditBuffer(SM.getMainFileID()).write(FileStream);
