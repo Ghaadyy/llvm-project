@@ -55,3 +55,4 @@ add_clang_subdirectory(libclang)
 add_clang_subdirectory(offload-arch)
 
 add_clang_subdirectory(assignment1)
+add_clang_subdirectory(assignment2)
