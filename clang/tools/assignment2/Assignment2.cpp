@@ -1,14 +1,18 @@
+/*
+    Assignment 2 prepared by:
+    Antoine Karam (ack13@mail.aub.edu), ID: 202670543
+    Ghady Youssef (ggy03@mail.aub.edu), ID: 202670367
+*/
 
 #include "clang/AST/AST.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/RecursiveASTVisitor.h"
-#include "clang/ASTMatchers/ASTMatchers.h"
 #include "clang/Frontend/ASTConsumers.h"
-#include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendActions.h"
-#include "clang/Rewrite/Core/Rewriter.h"
+#include "clang/Frontend/CompilerInstance.h"
 #include "clang/Tooling/CommonOptionsParser.h"
 #include "clang/Tooling/Tooling.h"
+#include "clang/Rewrite/Core/Rewriter.h"
 
 #include <sstream>
 #include <map>
@@ -44,16 +48,16 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
                 // Generate code for the function signature
 
                 // TODO
-                outFile_  << "define " << funcDecl->getReturnType() << " @" << funcDecl->getName().str() << "(";
+                std::string returnType = funcDecl->getReturnType().getAsString();
+                std::string funcName = funcDecl->getNameAsString();
+                outFile_ << "\ndefine " << returnType << " @" << funcName << "(";
 
-                if (funcDecl->getNumParams() > 0) {
-                  outFile_ << (*funcDecl->param_begin())->getType() << " %" << (*funcDecl->param_begin())->getName().str();
-                  if (funcDecl->getNumParams() > 1) {
-                    for (auto p = funcDecl->param_begin() + 1; p != funcDecl->param_end(); ++p) {
-                      const auto param = *p;
-                      outFile_ << ", " << param->getType() << " %" << param->getName().str();
-                    }
-                  }
+                for(unsigned i = 0; i < funcDecl->getNumParams(); i++) {
+                    if(i > 0) outFile_ << ", ";
+                    ParmVarDecl* param = funcDecl->getParamDecl(i);
+                    std::string paramType = param->getType().getAsString();
+                    std::string paramName = param->getNameAsString();
+                    outFile_ << paramType << " %" << paramName;
                 }
 
                 outFile_ << ") {\n\n";
@@ -61,19 +65,14 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
                 // Generate code for the function body
                 // Do not forget to store parameters to the stack upon entry
 
-                // TODO
-
                 for (const auto param : funcDecl->parameters()) {
-                  // %r0 = alloca int
-                  // store int %x, int* %r0
                   const auto reg = createReg(param);
                   outFile_ << "%r" << reg << " = alloca " << param->getType() << "\n";
                   outFile_ << "store " << param->getType() << " %" << param->getNameAsString() << ", " << param->getType() << "* %r" << reg << "\n";
                 }
-
                 Visit(body);
 
-                outFile_ << "\n}\n\n";
+                outFile_ << "\n}\n";
             }
 
         }
@@ -83,9 +82,10 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
             // Generate code for compund statements (sequence of statements in curly braces)
 
             // TODO
-            for (const auto s : stmt->children()) {
-              Visit(s);
+            for(const auto& st: stmt->body()) {
+                Visit(st);
             }
+
         }
 
         void VisitDeclStmt(const DeclStmt* stmt) {
@@ -96,12 +96,17 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
                     // Generate code for variable declaration(s)
 
                     // TODO
-                    const auto reg = createReg(vdecl);
-                    outFile_ << "%r" << reg << " = alloca " << vdecl->getType() << "\n";
-                    if (vdecl->hasInit()) {
-                      Visit(vdecl->getInit());
-                      outFile_ << "store " << vdecl->getType() << " %r" << getReg(vdecl->getInit()) << ", " << vdecl->getType() << "* %r" << reg << "\n";
+                    std::string vType = vdecl->getType().getAsString();
+                    unsigned int reg = createReg(vdecl);
+                    outFile_ << "%r" << reg << " = alloca " << vType << "\n";
+
+                    if(const Expr* init = vdecl->getInit()) {
+                        Visit(init);
+                        unsigned int initReg = getReg(init);
+                        outFile_ << "store " << vType << " %r" << initReg
+                                 << ", " << vType << "* %r" << reg << "\n";
                     }
+
                 }
             }
 
@@ -117,6 +122,7 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
 
             // TODO
             setReg(E, getReg(vdecl));
+
         }
 
         void VisitIntegerLiteral(const IntegerLiteral *literal) {
@@ -124,8 +130,10 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
             // Generate code for integer constants
 
             // TODO
-            const auto reg = createReg(literal);
-            outFile_ << "%r" << reg << " = " << "seti int " << literal->getValue() << "\n";
+            int64_t value = literal->getValue().getSExtValue();
+            unsigned int reg = createReg(literal);
+            outFile_ << "%r" << reg << " = seti int " << value << "\n";
+
         }
 
         void VisitCharacterLiteral(const CharacterLiteral *literal) {
@@ -133,8 +141,10 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
             // Generate code for character constants
 
             // TODO
-            const auto reg = createReg(literal);
-            outFile_ << "%r" << reg << " = " << "seti char " << literal->getValue() << "\n";
+            unsigned value = literal->getValue();
+            unsigned int reg = createReg(literal);
+            outFile_ << "%r" << reg << " = seti char " << value << "\n";
+
         }
 
         void VisitFloatingLiteral(const FloatingLiteral *literal) {
@@ -142,8 +152,11 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
             // Generate code for float constants
 
             // TODO
-            const auto reg = createReg(literal);
-            outFile_ << "%r" << reg << " = " << "seti float " << literal->getValue() << "\n";
+            std::string type = literal->getType().getAsString();
+            float value = literal->getValue().convertToFloat();
+            unsigned int reg = createReg(literal);
+            outFile_ << "%r" << reg << " = seti float " << value << "\n";
+
         }
 
         void VisitImplicitCastExpr(const ImplicitCastExpr* cast) {
@@ -182,72 +195,102 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
                 // Hint: you can use BO->getOpcodeStr() to get the operator symbol
 
                 // TODO
-                Visit(BO->getLHS());
-                Visit(BO->getRHS());
-                const auto reg = createReg(BO);
-                outFile_ << "%r" << reg  << " = " << BO->getLHS()->getType() << " %r" << getReg( BO->getLHS()) << " " << BO->getOpcodeStr() << " "
-                                                  << BO->getRHS()->getType() << " %r" << getReg( BO->getRHS()) << "\n";
+                const Expr* lhs = BO->getLHS();
+                const Expr* rhs = BO->getRHS();
+                Visit(lhs);
+                Visit(rhs);
+
+                unsigned int reg = createReg(BO);
+                unsigned int lhsReg = getReg(lhs);
+                unsigned rhsReg = getReg(rhs);
+
+                llvm::StringRef symbol = BO->getOpcodeStr();
+
+                outFile_ << "%r" << reg << " = "
+                         << lhs->getType() << " %r" << lhsReg
+                         << " " << symbol << " "
+                         << rhs->getType() << " %r" << rhsReg << "\n";
 
             } else if(op == BO_Assign) {
 
                 // Generate code for the assignment operator
 
                 // TODO
-                const auto lhs = BO->getLHS();
-                const auto rhs = BO->getRHS();
-                // const auto reg = createReg(BO);
-
+                const Expr* lhs = BO->getLHS();
+                const Expr* rhs = BO->getRHS();
                 Visit(lhs);
                 Visit(rhs);
 
-                // store int %r142, int* %r141
-                outFile_ << "store " << lhs->getType() << " %r" << getReg(rhs) << ", " << lhs->getType() << "* %r" << getReg(lhs) << "\n";
-                setReg(BO, getReg(lhs));
+                unsigned int lhsReg = getReg(lhs);
+                unsigned int rhsReg = getReg(rhs);
+
+                outFile_ << "store " << BO->getType() << " %r" << rhsReg << ", "
+                         << BO->getType() << "* %r" << lhsReg << "\n";
+
+                setReg(BO, lhsReg);
 
             } else if(op >= BO_MulAssign && op <= BO_OrAssign) {
 
                 // Generate code for compound assignment operators
-                // Hint: Options are BO_MulAssign (*=), BO_DivAssign (/=), BO_RemAssign (%=), BO_AddAssign (+=), BO_SubAssign (-=), 
+                // Hint: Options are BO_MulAssign (*=), BO_DivAssign (/=), BO_RemAssign (%=), BO_AddAssign (+=), BO_SubAssign (-=),
                 //                   BO_ShlAssign (<<=), BO_ShrAssign (>>=), BO_AndAssign (&=), BO_XorAssign (^=), BO_OrAssign  (|=)
 
                 // TODO
-                // %r33 = load int, int* %r28
-                // %r34 = load int, int* %r29
-                // %r35 = int %r34 + int %r33
-                // store int %r35, int* %r29
-                const auto lhs = BO->getLHS();
-                const auto rhs = BO->getRHS();
-
+                const Expr* lhs = BO->getLHS();
+                const Expr* rhs = BO->getRHS();
                 Visit(lhs);
                 Visit(rhs);
-                const auto r1 = createReg();
-                outFile_ << "%r" << r1 << " = load " << lhs->getType() << ", " << lhs->getType() << "* %r" << getReg(lhs) << "\n";
-                // outFile_ << "%r" << r2 << " = load " << rhs->getType() << ", " << rhs->getType() << "* %r" << getReg(rhs) << "\n";
-                const auto opCode = BinaryOperator::getOpcodeStr(op);
-                const auto reg = createReg();
-                outFile_ << "%r" << reg << " = " << lhs->getType() << " %r" << r1 << " " << opCode.substr(0, opCode.size() - 1) << " " << rhs->getType() << " %r" << getReg(rhs) << "\n";
-                outFile_ << "store " << rhs->getType() << " %r" << reg << ", " << lhs->getType() << "* %r" << getReg(lhs) << "\n";
-                setReg(BO, getReg(lhs));
+
+                unsigned int lhsReg = getReg(lhs);
+                unsigned int rhsReg = getReg(rhs);
+
+                std::string type = BO->getType().getAsString();
+
+                unsigned int lTmp = createReg();
+                outFile_ << "%r" << lTmp << " = load " << type
+                         << ", " << type << "* %r" << lhsReg << "\n";
+
+                BinaryOperator::Opcode simpleOp = BinaryOperator::getOpForCompoundAssignment(op);
+                llvm::StringRef symbol = BinaryOperator::getOpcodeStr(simpleOp);
+
+                unsigned int resultReg = createReg();
+                outFile_ << "%r" << resultReg << " = "
+                         << type << " %r" << lTmp
+                         << " " << symbol << " "
+                         << type << " %r" << rhsReg << "\n";
+
+                outFile_ << "store " << type << " %r" << resultReg
+                        << ", " << type << "* %r" << lhsReg << "\n";
+
+                setReg(BO, lhsReg);
 
             } else if(op == BO_LAnd || op == BO_LOr) {
 
                 // Generate code for short-circuiting Boolean expressions
 
                 // TODO
+                unsigned int nextLabel = createLabel();
+                unsigned int exitLabel = createLabel();
 
-                const unsigned int nextLabel = createLabel();
-                const unsigned int exitLabel = createLabel();
+                const Expr* lhs = BO->getLHS();
+                Visit(lhs);
+                unsigned int lhsReg = getReg(lhs);
 
-                Visit(BO->getLHS());
-                const auto r1 = getReg(BO->getLHS());
-                outFile_ << "br %r" << r1 << ", label L" << (op == BO_LAnd ? nextLabel : exitLabel) << ", label L" << (op == BO_LAnd ? exitLabel : nextLabel) << "\n";
+                outFile_ << "br %r" << lhsReg << ", label L"
+                         << (op == BO_LAnd ? nextLabel : exitLabel)
+                         << ", label L" << (op == BO_LAnd ? exitLabel : nextLabel) << "\n";
+
                 outFile_ << "\nL" << nextLabel << ":\n";
-                Visit(BO->getRHS());
-                const auto r2 = getReg(BO->getRHS());
+                const Expr* rhs = BO->getRHS();
+                Visit(rhs);
                 outFile_ << "br label L" << exitLabel << "\n";
+
                 outFile_ << "\nL" << exitLabel << ":\n";
-                const auto reg = createReg(BO);
-                outFile_ << "%r" << reg << " = phi(%r" << r1 << ", %r" << r2 << ")\n";
+                unsigned int reg = createReg(BO);
+                unsigned int rhsReg = getReg(rhs);
+                outFile_ << "%r" << reg
+                         << " = phi(%r" << lhsReg
+                         << ", %r" << rhsReg << ")\n";
 
             } else {
 
@@ -267,48 +310,69 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
                 // Hint: you can use UnaryOperator::getOpcodeStr(op) to get the operator symbol
 
                 // TODO
-                const auto sub = UO ->getSubExpr();
-                Visit(sub);
+                const Expr* subExpr = UO->getSubExpr();
+                Visit(subExpr);
 
-                const auto reg = createReg(UO);
-                const auto opCode = UnaryOperator::getOpcodeStr(op);
+                unsigned int reg = createReg(UO);
+                unsigned int subExprReg = getReg(subExpr);
 
-                // outFile_ << "%r" << r1 << " = load " << sub->getType() << ", " << sub->getType() << "* %r" << getReg(sub) << "\n";
-                outFile_ << "%r" << reg << " = " << opCode << " " << sub->getType() << " %r" << getReg(sub) << "\n";
+                llvm::StringRef symbol = UnaryOperator::getOpcodeStr(op);
+
+                outFile_ << "%r" << reg << " = "
+                         << symbol << " "
+                         << subExpr->getType() << " %r" << subExprReg << "\n";
 
             } else if(op == UO_PostInc || op == UO_PostDec) {
 
                 // Generate code for post-fix operators (e.g., x++, x--)
 
                 // TODO
-                const auto sub = UO ->getSubExpr();
-                Visit(sub);
+                const Expr* subExpr = UO->getSubExpr();
+                Visit(subExpr);
 
-                const auto r1 = createReg(), r2 = createReg(), reg = createReg();
-                const auto opCode = UnaryOperator::getOpcodeStr(op);
+                unsigned int subExprReg = getReg(subExpr);
+                std::string type = UO->getType().getAsString();
 
-                outFile_ << "%r" << r1 << " = load " << sub->getType() << ", " << sub->getType() << "* %r" << getReg(sub) << "\n";
-                outFile_ << "%r" << r2 << " = seti " << sub->getType() << " 1\n";
-                outFile_ << "%r" << reg << " = " << sub->getType() << " %r" << r1 << " " << opCode[0] << " " << sub->getType() << " %r" << r2 << "\n";
-                outFile_ << "store " << sub->getType() << " %r" << reg << ", " << sub->getType() << "* %r" << getReg(sub) << "\n";
-                setReg(UO, r1);
+                unsigned int reg = createReg(UO), consReg = createReg(), resultReg = createReg();
+
+                char opStr = UnaryOperator::getOpcodeStr(op)[0];
+
+                outFile_ << "%r" << reg << " = load " << type
+                         << ", " << type << "* %r" << subExprReg << "\n";
+                outFile_ << "%r" << consReg << " = seti " << type << " 1\n";
+                outFile_ << "%r" << resultReg << " = "
+                         << type << " %r" << reg
+                         << " " << opStr << " "
+                         << type << " %r" << consReg << "\n";
+                outFile_ << "store " << type << " %r" << resultReg
+                        << ", " << type << "* %r" << subExprReg << "\n";
 
             } else if(op == UO_PreInc || op == UO_PreDec) {
 
                 // Generate code for pre-fix operators (e.g., ++x, --x)
 
                 // TODO
-                const auto sub = UO ->getSubExpr();
-                Visit(sub);
+                const Expr* subExpr = UO->getSubExpr();
+                Visit(subExpr);
 
-                const auto r1 = createReg(), r2 = createReg(), r3 = createReg();
-                const auto opCode = UnaryOperator::getOpcodeStr(op);
+                unsigned int subExprReg = getReg(subExpr);
+                std::string type = UO->getType().getAsString();
 
-                outFile_ << "%r" << r1 << " = load " << sub->getType() << ", " << sub->getType() << "* %r" << getReg(sub) << "\n";
-                outFile_ << "%r" << r2 << " = seti " << sub->getType() << " 1\n";
-                outFile_ << "%r" << r3 << " = " << sub->getType() << " %r" << r1 << " " << opCode[0] << " " << sub->getType() << " %r" << r2 << "\n";
-                outFile_ << "store " << sub->getType() << " %r" << r3 << ", " << sub->getType() << "* %r" << getReg(sub) << "\n";
-                setReg(UO, getReg(sub));
+                unsigned int tmpReg = createReg(), consReg = createReg(), resultReg = createReg();
+
+                char opStr = UnaryOperator::getOpcodeStr(op)[0];
+
+                outFile_ << "%r" << tmpReg << " = load " << type
+                         << ", " << type << "* %r" << subExprReg << "\n";
+                outFile_ << "%r" << consReg << " = seti " << type << " 1\n";
+                outFile_ << "%r" << resultReg << " = "
+                         << type << " %r" << tmpReg
+                         << " " << opStr << " "
+                         << type << " %r" << consReg << "\n";
+                outFile_ << "store " << type << " %r" << resultReg
+                        << ", " << type << "* %r" << subExprReg << "\n";
+
+                setReg(UO, subExprReg);
 
             } else if(op == UO_AddrOf) {
 
@@ -338,22 +402,29 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
             // Generate code for call expressions
 
             // TODO
-
             for (const auto arg : call->arguments()) {
               Visit(arg);
             }
 
-            const auto reg = createReg(call);
-            outFile_ << "%r" << reg << " = call " << call->getDirectCallee()->getReturnType() << " @" << call->getDirectCallee()->getNameAsString() << "(";
+            const FunctionDecl* callee = call->getDirectCallee();
+            std::string calleeType = callee->getReturnType().getAsString();
+            std::string calleeName = callee->getNameAsString();
 
-            if (call->getNumArgs() > 0) {
-              outFile_ << (*call->arg_begin())->getType() << " %r" << getReg(*call->arg_begin());
-              if (call->getNumArgs() > 1) {
-                for (auto a = call->arg_begin() + 1; a != call->arg_end(); ++a) {
-                  const auto arg = *a;
-                  outFile_ << ", " << arg->getType() << " %r" << getReg(arg);
-                }
-              }
+            if(calleeType == "void") {
+                outFile_ << "call void @" << calleeName << "(";
+            } else {
+                unsigned int reg = createReg(call);
+                outFile_ << "%r" << reg << " = call "
+                         << calleeType << " @"
+                         << calleeName << "(";
+            }
+
+            for(unsigned i = 0; i < call->getNumArgs(); i++) {
+                if(i > 0) outFile_ << ", ";
+                const Expr* arg = call->getArg(i);
+                std::string argType = arg->getType().getAsString();
+                unsigned int argReg = getReg(arg);
+                outFile_ << argType << " %r" << argReg;
             }
 
             outFile_ << ")\n";
@@ -364,12 +435,13 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
             // Generate code for return statements
 
             // TODO
-            if (const Expr* val = Stmt->getRetValue()) {
-              Visit(val);
-              outFile_ << "ret " << val->getType() << " %r" << getReg(val) << "\n";
+            if(const Expr* retValue = Stmt->getRetValue()) {
+                Visit(retValue);
+                outFile_ << "ret " << retValue->getType() << " %r" << getReg(retValue) << "\n";
             } else {
-              outFile_ << "ret void\n";
+                outFile_ << "ret void\n";
             }
+
         }
 
         void VisitParenExpr(const ParenExpr* expr) {
@@ -379,6 +451,7 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
             // TODO
             Visit(expr->getSubExpr());
             setReg(expr, getReg(expr->getSubExpr()));
+
         }
 
         void VisitNullStmt(const NullStmt* stmt) {
@@ -386,6 +459,7 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
             // Generate code for empty statement
 
             // TODO
+            // Nothing to do here
 
         }
 
@@ -395,18 +469,26 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
 
             // TODO
             const unsigned int thenLabel = createLabel(), elseLabel = createLabel(), exitLabel = createLabel();
+            const Expr* cond = ifStmt->getCond();
+            const Stmt* elseStmt = ifStmt->getElse(), *then = ifStmt->getThen();
 
-            Visit(ifStmt->getCond());
-            outFile_ << "br %r" << getReg(ifStmt->getCond()) << ", label L" << thenLabel << ", label L" << (ifStmt->hasElseStorage() ? elseLabel : exitLabel) << "\n";
+            Visit(cond);
+
+            outFile_ << "br %r" << getReg(cond) << ", label L" << thenLabel << ", label L" << (elseStmt ? elseLabel : exitLabel) << "\n";
             outFile_ << "\nL" << thenLabel << ":\n";
-            Visit(ifStmt->getThen());
+
+            Visit(then);
+
             outFile_ << "br label L" << exitLabel << "\n";
-            if (ifStmt->hasElseStorage()) {
-              outFile_ << "\nL" << elseLabel << ":\n";
-              Visit(ifStmt->getElse());
-              outFile_ << "br label L" << exitLabel << "\n";
+
+            if(elseStmt) {
+                outFile_ << "\nL" << elseLabel << ":\n";
+                Visit(elseStmt);
+                outFile_ << "br label L" << exitLabel << "\n";
             }
+
             outFile_ << "\nL" << exitLabel << ":\n";
+
         }
 
         void VisitConditionalOperator(const ConditionalOperator* CO) {
@@ -415,17 +497,24 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
 
             // TODO
             const auto trueLabel = createLabel(), falseLabel = createLabel(), exitLabel = createLabel();
-            Visit(CO->getCond());
-            outFile_ << "br %r" << getReg(CO->getCond()) << ", label L" << trueLabel << ", label L" << falseLabel << "\n";
+            const Expr* cond = CO->getCond(), *trueExpr = CO->getTrueExpr(), *falseExpr = CO->getFalseExpr();
+
+            Visit(cond);
+            outFile_ << "br %r" << getReg(cond) << ", label L" << trueLabel << ", label L" << falseLabel << "\n";
+
             outFile_ << "\nL" << trueLabel << ":\n";
-            Visit(CO->getTrueExpr());
+            Visit(trueExpr);
             outFile_ << "br label L" << exitLabel << "\n";
+
             outFile_ << "\nL" << falseLabel << ":\n";
-            Visit(CO->getFalseExpr());
+            Visit(falseExpr);
             outFile_ << "br label L" << exitLabel << "\n";
+
             outFile_ << "\nL" << exitLabel << ":\n";
-            const auto reg = createReg(CO);
-            outFile_ << "%r" << reg << " = phi(%r" << getReg(CO->getTrueExpr()) << ", %r" << getReg(CO->getFalseExpr()) << ")\n";
+
+            const unsigned int reg = createReg(CO), trueReg = getReg(trueExpr), falseReg = getReg(falseExpr);
+            outFile_ << "%r" << reg << " = phi(%r" << trueReg << ", %r" << falseReg << ")\n";
+
         }
 
         void VisitWhileStmt(const WhileStmt* whileStmt) {
@@ -433,20 +522,26 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
             // Generate code for while loop
 
             // TODO
-            const auto condLabel = createLabel(), bodyLabel = createLabel(), exitLabel = createLabel();
+            const unsigned int condLabel = createLabel(), bodyLabel = createLabel(), exitLabel = createLabel();
+            const Expr* cond = whileStmt->getCond();
+            const Stmt* body = whileStmt->getBody();
+
             pushBreakLabel(exitLabel);
             pushContinueLabel(condLabel);
 
             outFile_ << "\nL" << condLabel << ":\n";
-            Visit(whileStmt->getCond());
-            outFile_ << "br %r" << getReg(whileStmt->getCond()) << ", label L" << bodyLabel << ", label L" << exitLabel << "\n";
+            Visit(cond);
+            outFile_ << "br %r" << getReg(cond) << ", label L" << bodyLabel << ", label L" << exitLabel << "\n";
+
             outFile_ << "\nL" << bodyLabel << ":\n";
-            Visit(whileStmt->getBody());
+            Visit(body);
             outFile_ << "br label L" << condLabel << "\n";
+
             outFile_ << "\nL" << exitLabel << ":\n";
 
             popBreakLabel();
             popContinueLabel();
+
         }
 
         void VisitDoStmt(const DoStmt* doStmt) {
@@ -454,21 +549,26 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
             // Generate code for do-while loop
 
             // TODO
-            const auto bodyLabel = createLabel(), condLabel = createLabel(), exitLabel = createLabel();
+            const unsigned int bodyLabel = createLabel(), condLabel = createLabel(), exitLabel = createLabel();
+            const Stmt* body = doStmt->getBody();
+            const Expr* cond = doStmt->getCond();
 
             pushBreakLabel(exitLabel);
             pushContinueLabel(condLabel);
 
             outFile_ << "\nL" << bodyLabel << ":\n";
-            Visit(doStmt->getBody());
+            Visit(body);
             outFile_ << "br label L" << condLabel << "\n";
+
             outFile_ << "\nL" << condLabel << ":\n";
-            Visit(doStmt->getCond());
-            outFile_ << "br %r" << getReg(doStmt->getCond()) << ", label L" << bodyLabel << ", label L" << exitLabel << "\n";
+            Visit(cond);
+            outFile_ << "br %r" << getReg(cond) << ", label L" << bodyLabel << ", label L" << exitLabel << "\n";
+
             outFile_ << "\nL" << exitLabel << ":\n";
 
             popBreakLabel();
             popContinueLabel();
+
         }
 
         void VisitForStmt(const ForStmt* forStmt) {
@@ -476,26 +576,41 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
             // Generate code for for loop
 
             // TODO
-            const auto condLabel = createLabel(), bodyLabel = createLabel(), postIterLabel = createLabel(), exitLabel = createLabel();
+            const unsigned int  condLabel = createLabel(), bodyLabel = createLabel(),
+                                incLabel = createLabel(), exitLabel = createLabel();
 
             pushBreakLabel(exitLabel);
-            pushContinueLabel(condLabel);
+            pushContinueLabel(incLabel);
 
-            Visit(forStmt->getInit());
+            if(const Stmt* init = forStmt->getInit()) {
+                Visit(init);
+            }
+
             outFile_ << "br label L" << condLabel << "\n";
+
             outFile_ << "\nL" << condLabel << ":\n";
-            Visit(forStmt->getCond());
-            outFile_ << "br %r" << getReg(forStmt->getCond()) << ", label L" << bodyLabel << ", label L" << exitLabel << "\n";
+            if(const Expr* cond = forStmt->getCond()) {
+                Visit(cond);
+                outFile_ << "br %r" << getReg(cond) << ", label L" << bodyLabel << ", label L" << exitLabel << "\n";
+            } else {
+                outFile_ << "br label L" << bodyLabel << "\n";
+            }
+
             outFile_ << "\nL" << bodyLabel << ":\n";
             Visit(forStmt->getBody());
-            outFile_ << "br label L" << postIterLabel << "\n";
-            outFile_ << "\nL" << postIterLabel << ":\n";
-            Visit(forStmt->getInc());
+            outFile_ << "br label L" << incLabel << "\n";
+
+            outFile_ << "\nL" << incLabel << ":\n";
+            if(const Expr* inc = forStmt->getInc()) {
+                Visit(inc);
+            }
             outFile_ << "br label L" << condLabel << "\n";
+
             outFile_ << "\nL" << exitLabel << ":\n";
 
             popBreakLabel();
             popContinueLabel();
+
         }
 
         void VisitBreakStmt(const BreakStmt* B) {
@@ -503,8 +618,8 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
             // Generate code for break statement
 
             // TODO
-            const auto label = getBreakLabel();
-            outFile_ << "br label L" << label << "\n";
+            outFile_ << "br label L" << getBreakLabel() << "\n";
+
         }
 
         void VisitContinueStmt(const ContinueStmt* C) {
@@ -512,8 +627,8 @@ class Assignment2CodeGenerator : public ConstStmtVisitor<Assignment2CodeGenerato
             // Generate code for continue statement
 
             // TODO
-            const auto label = getContinueLabel();
-            outFile_ << "br label L" << label << "\n";
+            outFile_ << "br label L" << getContinueLabel() << "\n";
+
         }
 
         void VisitArraySubscriptExpr(const ArraySubscriptExpr* E) {
@@ -681,4 +796,3 @@ int main(int argc, const char **argv) {
     ClangTool Tool(OptionsParser.getCompilations(), OptionsParser.getSourcePathList());
     return Tool.run(newFrontendActionFactory<Assignment2Action>().get());
 }
-
