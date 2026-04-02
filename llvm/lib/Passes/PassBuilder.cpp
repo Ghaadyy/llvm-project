@@ -384,6 +384,7 @@
 #include "llvm/Transforms/Vectorize/SandboxVectorizer/SandboxVectorizer.h"
 #include "llvm/Transforms/Vectorize/VectorCombine.h"
 #include <optional>
+#include "llvm/Transforms/Utils/Assignment3.h"
 
 using namespace llvm;
 
